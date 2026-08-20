@@ -1,18 +1,4 @@
-# Dependencias
 node_modules/
-dist/
-build/
-
-# Secretos y configuración
 .env
-secrets/
-*.pem
-*.key
-
-# Logs y basura del sistema
 *.log
-.DS_Store
-.npm/
-
-# Temporales
-tmp/
+setup_db.js

@@ -14,7 +14,7 @@
     "@simplewebauthn/server": "^10.0.1",
     "better-auth": "^1.6.11",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2",
+    "express": "^4.22.2",
     "postgres": "^3.4.4",
     "react-router-dom": "^7.17.0"
   },
@@ -35,6 +35,5 @@
   "homepage": "https://github.com/camachogonzalezdavidjose-stack/bunkercore#readme",
   "directories": {
     "test": "tests"
-  },
-  "devDependencies": {}
+  }
 }
