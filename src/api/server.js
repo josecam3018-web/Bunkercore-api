@@ -14,10 +14,9 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.use(express.json());
 
-// Ruta corregida a la carpeta public/
+// Archivos estáticos
 app.use(express.static(path.join(__dirname, '../../public')));
 
-// Ruta de respaldo para la raíz
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, '../../public/index.html'));
 });
@@ -26,39 +25,77 @@ const PORT = process.env.PORT || 3000;
 
 console.log("Bunkercore: Sistema iniciado y en modo Zero-Trust.");
 
-// Middleware Adaptativo
-const securityGuard = (req, res, next) => {
+/**
+ * Middleware de Autenticación por API Key (x-api-key)
+ */
+const securityGuard = async (req, res, next) => {
+    const apiKey = req.headers['x-api-key'];
+    const { tenantId } = req.body;
+
+    // Validación por API Key comercial
+    if (apiKey && tenantId) {
+        try {
+            const isValid = await db.isValidApiKey(tenantId, apiKey);
+            if (isValid) return next();
+            return res.status(401).json({ error: "Acceso denegado: API Key o Tenant ID no válido." });
+        } catch (err) {
+            return res.status(500).json({ error: "Error validando credenciales: " + err.message });
+        }
+    }
+
+    // Modo Desarrollo / Firma FIDO2
     if (process.env.NODE_ENV === 'production') {
         const { userSignature } = req.body;
-        if (!userSignature || !userSignature.startsWith('fido2_signature')) {
-            return res.status(401).json({
-                error: "Acceso denegado: Firma FIDO2 o ticket de seguridad inválido."
-            });
+        if (userSignature && userSignature.startsWith('fido2_signature')) {
+            return next();
         }
-        return next();
+        return res.status(401).json({
+            error: "Acceso denegado: Se requiere encabezado 'x-api-key' válido o firma de seguridad."
+        });
     }
 
     if (!checkAuthStatus()) {
-        return res.status(401).json({
-            error: "Acceso denegado: Se requiere autenticación biométrica o ticket válido."
-        });
+        return res.status(401).json({ error: "Acceso denegado: Se requiere autenticación biométrica." });
     }
     next();
 };
 
-app.post('/v1/encrypt', securityGuard, async (req, res) => {
-    const { tenantId, userSignature, payload } = req.body;
+/**
+ * ENDPOINT 0: Registrar Nuevo Tenant & Generar API Key
+ * POST /v1/auth/keys
+ */
+app.post('/v1/auth/keys', async (req, res) => {
+    try {
+        const tenantId = 'tenant-' + Math.random().toString(36).substring(2, 9);
+        const apiKey = 'bk_live_' + Array.from(crypto.getRandomValues(new Uint8Array(16)))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
 
-    if (!tenantId || !userSignature || !payload) {
-        return res.status(400).json({ error: "Faltan parámetros requeridos: tenantId, userSignature, payload." });
+        await db.createApiKey(tenantId, apiKey);
+
+        return res.status(201).json({
+            status: "CREATED",
+            tenantId,
+            apiKey,
+            message: "Guarda tu API Key. Requerida en la cabecera 'x-api-key'."
+        });
+    } catch (error) {
+        return res.status(500).json({ error: "Error generando credenciales: " + error.message });
+    }
+});
+
+/**
+ * ENDPOINT 1: Cifrar Datos
+ * POST /v1/encrypt
+ */
+app.post('/v1/encrypt', securityGuard, async (req, res) => {
+    const { tenantId, payload } = req.body;
+
+    if (!tenantId || !payload) {
+        return res.status(400).json({ error: "Faltan parámetros requeridos: tenantId, payload." });
     }
 
     try {
         validateTenant(tenantId);
-        const isVerified = await verifyIdentity(userSignature);
-        if (!isVerified) {
-            return res.status(403).json({ error: "Acceso denegado: Firma FIDO2 no válida." });
-        }
 
         const securePayload = await encryptData(payload, tenantId);
         const event = await recordEvent(tenantId, "DATA_ENCRYPTION", "Procesado vía API REST.");
@@ -75,19 +112,19 @@ app.post('/v1/encrypt', securityGuard, async (req, res) => {
     }
 });
 
+/**
+ * ENDPOINT 2: Consultar y Descifrar Datos
+ * POST /v1/decrypt
+ */
 app.post('/v1/decrypt', securityGuard, async (req, res) => {
-    const { tenantId, userSignature } = req.body;
+    const { tenantId } = req.body;
 
-    if (!tenantId || !userSignature) {
-        return res.status(400).json({ error: "Faltan parámetros requeridos: tenantId, userSignature." });
+    if (!tenantId) {
+        return res.status(400).json({ error: "Falta parámetro requerido: tenantId." });
     }
 
     try {
         validateTenant(tenantId);
-        const isVerified = await verifyIdentity(userSignature);
-        if (!isVerified) {
-            return res.status(403).json({ error: "Acceso denegado: Firma FIDO2 no válida." });
-        }
 
         const secureBlob = await db.getData(tenantId);
         if (!secureBlob) {
