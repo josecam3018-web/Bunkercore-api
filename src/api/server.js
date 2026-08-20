@@ -1,4 +1,6 @@
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { verifyIdentity } from '../core/auth/index.js';
 import { encryptData, decryptData } from '../core/crypto/index.js';
 import { recordEvent } from '../core/ledger/index.js';
@@ -6,19 +8,37 @@ import { validateTenant } from '../core/tenants/index.js';
 import { db } from '../core/db/index.js';
 import { checkAuthStatus } from '../../check_auth.js';
 
+// Configuración de rutas estáticas para ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
-app.use(express.json()); // Permite procesar payloads JSON
+app.use(express.json());
+
+// Servir la interfaz web desde la carpeta public/
+app.use(express.static(path.join(__dirname, '../../../public')));
 
 const PORT = process.env.PORT || 3000;
 
-// Inicialización del Motor
 console.log("Bunkercore: Sistema iniciado y en modo Zero-Trust.");
 
-// Middleware de Seguridad Global (Biometría / Ticket)
+// Middleware de Seguridad Adaptativo (Termux / Render)
 const securityGuard = (req, res, next) => {
+    // Si la aplicación corre en producción (Render), valida la firma de la petición
+    if (process.env.NODE_ENV === 'production') {
+        const { userSignature } = req.body;
+        if (!userSignature || !userSignature.startsWith('fido2_signature')) {
+            return res.status(401).json({
+                error: "Acceso denegado: Firma FIDO2 o ticket de seguridad inválido."
+            });
+        }
+        return next();
+    }
+
+    // En entorno local (Termux)
     if (!checkAuthStatus()) {
-        return res.status(401).json({ 
-            error: "Acceso denegado: Se requiere autenticación biométrica o ticket válido." 
+        return res.status(401).json({
+            error: "Acceso denegado: Se requiere autenticación biométrica o ticket válido."
         });
     }
     next();
@@ -37,7 +57,7 @@ app.post('/v1/encrypt', securityGuard, async (req, res) => {
 
     try {
         validateTenant(tenantId);
-        
+
         const isVerified = await verifyIdentity(userSignature);
         if (!isVerified) {
             return res.status(403).json({ error: "Acceso denegado: Firma FIDO2 no válida." });
@@ -95,7 +115,6 @@ app.post('/v1/decrypt', securityGuard, async (req, res) => {
     }
 });
 
-// Arrancar el servidor HTTP
 app.listen(PORT, () => {
-    console.log(`🚀 BunkerCore API Server corriendo en http://localhost:${PORT}`);
+    console.log(`🚀 BunkerCore API Server corriendo en puerto ${PORT}`);
 });
