@@ -8,23 +8,26 @@ import { validateTenant } from '../core/tenants/index.js';
 import { db } from '../core/db/index.js';
 import { checkAuthStatus } from '../../check_auth.js';
 
-// Configuración de rutas estáticas para ES Modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(express.json());
 
-// Servir la interfaz web desde la carpeta public/
-app.use(express.static(path.join(__dirname, '../../../public')));
+// Ruta corregida a la carpeta public/
+app.use(express.static(path.join(__dirname, '../../public')));
+
+// Ruta de respaldo para la raíz
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, '../../public/index.html'));
+});
 
 const PORT = process.env.PORT || 3000;
 
 console.log("Bunkercore: Sistema iniciado y en modo Zero-Trust.");
 
-// Middleware de Seguridad Adaptativo (Termux / Render)
+// Middleware Adaptativo
 const securityGuard = (req, res, next) => {
-    // Si la aplicación corre en producción (Render), valida la firma de la petición
     if (process.env.NODE_ENV === 'production') {
         const { userSignature } = req.body;
         if (!userSignature || !userSignature.startsWith('fido2_signature')) {
@@ -35,7 +38,6 @@ const securityGuard = (req, res, next) => {
         return next();
     }
 
-    // En entorno local (Termux)
     if (!checkAuthStatus()) {
         return res.status(401).json({
             error: "Acceso denegado: Se requiere autenticación biométrica o ticket válido."
@@ -44,10 +46,6 @@ const securityGuard = (req, res, next) => {
     next();
 };
 
-/**
- * ENDPOINT 1: Cifrar y Almacenar Datos
- * POST /v1/encrypt
- */
 app.post('/v1/encrypt', securityGuard, async (req, res) => {
     const { tenantId, userSignature, payload } = req.body;
 
@@ -57,7 +55,6 @@ app.post('/v1/encrypt', securityGuard, async (req, res) => {
 
     try {
         validateTenant(tenantId);
-
         const isVerified = await verifyIdentity(userSignature);
         if (!isVerified) {
             return res.status(403).json({ error: "Acceso denegado: Firma FIDO2 no válida." });
@@ -78,10 +75,6 @@ app.post('/v1/encrypt', securityGuard, async (req, res) => {
     }
 });
 
-/**
- * ENDPOINT 2: Consultar y Descifrar Datos
- * POST /v1/decrypt
- */
 app.post('/v1/decrypt', securityGuard, async (req, res) => {
     const { tenantId, userSignature } = req.body;
 
@@ -91,7 +84,6 @@ app.post('/v1/decrypt', securityGuard, async (req, res) => {
 
     try {
         validateTenant(tenantId);
-
         const isVerified = await verifyIdentity(userSignature);
         if (!isVerified) {
             return res.status(403).json({ error: "Acceso denegado: Firma FIDO2 no válida." });

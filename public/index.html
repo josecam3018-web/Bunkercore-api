@@ -3,143 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BunkerCore | Zero-Trust Console</title>
+    <title>BunkerCore Console</title>
     <style>
-        :root {
-            --bg: #0d1117;
-            --panel: #161b22;
-            --accent: #238636;
-            --text: #c9d1d9;
-            --border: #30363d;
-            --neon: #58a6ff;
-        }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
-            background-color: var(--bg);
-            color: var(--text);
-            margin: 0;
-            padding: 20px;
-            display: flex;
-            justify-content: center;
-        }
-        .container {
-            max-width: 800px;
-            width: 100%;
-        }
-        .header {
-            border-bottom: 1px solid var(--border);
-            padding-bottom: 15px;
-            margin-bottom: 25px;
-        }
-        .header h1 {
-            color: var(--neon);
-            margin: 0;
-            font-size: 1.8rem;
-        }
-        .card {
-            background-color: var(--panel);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-        h2 { font-size: 1.2rem; margin-top: 0; color: #fff; }
-        label { display: block; margin-bottom: 5px; font-size: 0.9rem; }
-        input, textarea, button {
-            width: 100%;
-            padding: 10px;
-            margin-bottom: 15px;
-            background: #0d1117;
-            border: 1px solid var(--border);
-            color: #fff;
-            border-radius: 6px;
-            box-sizing: border-box;
-            font-family: monospace;
-        }
-        button {
-            background-color: var(--accent);
-            color: white;
-            font-weight: bold;
-            cursor: pointer;
-            border: none;
-            transition: 0.2s;
-        }
-        button:hover { opacity: 0.9; }
-        pre {
-            background: #000;
-            padding: 12px;
-            border-radius: 6px;
-            border: 1px solid var(--border);
-            overflow-x: auto;
-            color: #7ee787;
-        }
+        body { font-family: monospace; background: #0d1117; color: #58a6ff; padding: 20px; }
+        .card { background: #161b22; border: 1px solid #30363d; padding: 20px; border-radius: 8px; max-width: 500px; margin: 0 auto; }
+        button { background: #238636; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; width: 100%; font-weight: bold; }
+        input { width: 100%; padding: 8px; margin: 8px 0 15px 0; background: #0d1117; border: 1px solid #30363d; color: #fff; box-sizing: border-box; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🛡️ BunkerCore Engine</h1>
-            <p style="margin: 5px 0 0 0; color: #8b949e;">Consola de Cifrado Zero-Trust & API Management</p>
-        </div>
-
-        <!-- Generador de Credenciales -->
-        <div class="card">
-            <h2>🔑 Generar Nuevo Tenant & API Key</h2>
-            <button onclick="generateCredentials()">Generar Credenciales Comercial</button>
-            <div id="credentialsOutput" style="display:none;">
-                <label>Tenant ID Assignado:</label>
-                <input type="text" id="tenantOutput" readonly>
-                <label>API Key Secreta (`x-api-key`):</label>
-                <input type="text" id="keyOutput" readonly>
-            </div>
-        </div>
-
-        <!-- Consola de Cifrado -->
-        <div class="card">
-            <h2>🔒 Cifrar Payload en la Nube</h2>
-            <label>Tenant ID:</label>
-            <input type="text" id="tenantInput" placeholder="ej. tenant-demo-01">
-            <label>JSON a Cifrar:</label>
-            <textarea id="payloadInput" rows="3">{"secreto": "Cuenta Bancaria #123456"}</textarea>
-            <button onclick="encryptData()">Cifrar & Guardar en PostgreSQL</button>
-            <pre id="encryptResult">// Respuesta de Render aparecerá aquí...</pre>
-        </div>
+    <div class="card">
+        <h2>🛡️ BunkerCore Zero-Trust API</h2>
+        <p>Servidor activo en Render con cifrado AES-256-GCM.</p>
+        <button onclick="genKey()">Generar API Key & Tenant</button>
+        <div id="res" style="margin-top:15px;"></div>
     </div>
-
     <script>
-        function generateCredentials() {
-            const tenant = 'tenant-' + Math.random().toString(36).substring(2, 9);
-            const apiKey = 'bk_live_' + Array.from(crypto.getRandomValues(new Uint8Array(16)))
-                .map(b => b.toString(16).padStart(2, '0')).join('');
-            
-            document.getElementById('tenantOutput').value = tenant;
-            document.getElementById('keyOutput').value = apiKey;
-            document.getElementById('tenantInput').value = tenant;
-            document.getElementById('credentialsOutput').style.display = 'block';
-        }
-
-        async function encryptData() {
-            const tenantId = document.getElementById('tenantInput').value || 'tenant-demo-01';
-            let payload;
-            try {
-                payload = JSON.parse(document.getElementById('payloadInput').value);
-            } catch (e) {
-                alert('El payload debe ser un JSON válido');
-                return;
-            }
-
-            const response = await fetch('/v1/encrypt', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    tenantId,
-                    userSignature: 'fido2_signature_hardware_key_ok_1234567890_demo',
-                    payload
-                })
-            });
-
-            const data = await response.json();
-            document.getElementById('encryptResult').innerText = JSON.stringify(data, null, 2);
+        function genKey() {
+            const tenant = 'tenant-' + Math.random().toString(36).substring(2, 8);
+            const key = 'bk_live_' + Array.from(crypto.getRandomValues(new Uint8Array(12))).map(b => b.toString(16).padStart(2, '0')).join('');
+            document.getElementById('res').innerHTML = '<b>Tenant:</b> ' + tenant + '<br><b>API Key:</b> ' + key;
         }
     </script>
 </body>
