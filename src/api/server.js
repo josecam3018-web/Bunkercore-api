@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import Stripe from 'stripe';
 import { verifyIdentity } from '../core/auth/index.js';
 import { encryptData, decryptData } from '../core/crypto/index.js';
 import { recordEvent } from '../core/ledger/index.js';
@@ -12,6 +13,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+
+// Instancia de Stripe (utiliza la variable de entorno o un placeholder de prueba)
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
+
 app.use(express.json());
 
 // Archivos estáticos
@@ -23,7 +28,7 @@ app.get('/', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-console.log("Bunkercore: Sistema iniciado y en modo Zero-Trust.");
+console.log("Bunkercore: Sistema iniciado y en modo Zero-Trust con Módulo Billing.");
 
 /**
  * Middleware de Autenticación por API Key (x-api-key)
@@ -32,25 +37,23 @@ const securityGuard = async (req, res, next) => {
     const apiKey = req.headers['x-api-key'];
     const { tenantId } = req.body;
 
-    // Validación por API Key comercial
     if (apiKey && tenantId) {
         try {
             const isValid = await db.isValidApiKey(tenantId, apiKey);
             if (isValid) return next();
-            return res.status(401).json({ error: "Acceso denegado: API Key o Tenant ID no válido." });
+            return res.status(401).json({ error: "Acceso denegado: API Key o Tenant ID no válido o suscripción inactiva." });
         } catch (err) {
             return res.status(500).json({ error: "Error validando credenciales: " + err.message });
         }
     }
 
-    // Modo Desarrollo / Firma FIDO2
     if (process.env.NODE_ENV === 'production') {
         const { userSignature } = req.body;
         if (userSignature && userSignature.startsWith('fido2_signature')) {
             return next();
         }
         return res.status(401).json({
-            error: "Acceso denegado: Se requiere encabezado 'x-api-key' válido o firma de seguridad."
+            error: "Acceso denegado: Se requiere encabezado 'x-api-key' válido."
         });
     }
 
@@ -61,7 +64,63 @@ const securityGuard = async (req, res, next) => {
 };
 
 /**
- * ENDPOINT 0: Registrar Nuevo Tenant & Generar API Key
+ * ENDPOINT 0: Crear Sesión de Pago en Stripe
+ * POST /v1/billing/checkout
+ */
+app.post('/v1/billing/checkout', async (req, res) => {
+    try {
+        const session = await stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            mode: 'subscription',
+            line_items: [
+                {
+                    price_data: {
+                        currency: 'usd',
+                        product_data: {
+                            name: 'BunkerCore API - Plan Pro',
+                            description: 'Acceso a Cifrado Zero-Trust con RLS y almacenamiento seguro',
+                        },
+                        unit_amount: 2900, // $29.00 USD/mes
+                        recurring: { interval: 'month' },
+                    },
+                    quantity: 1,
+                },
+            ],
+            success_url: `${req.protocol}://${req.get('host')}/?session_id={CHECKOUT_SESSION_ID}&status=success`,
+            cancel_url: `${req.protocol}://${req.get('host')}/?status=cancelled`,
+        });
+
+        return res.status(200).json({ url: session.url });
+    } catch (error) {
+        return res.status(500).json({ error: "Error al generar Checkout de Stripe: " + error.message });
+    }
+});
+
+/**
+ * ENDPOINT Webhook: Confirmación de Pago Automático desde Stripe
+ * POST /v1/billing/webhook
+ */
+app.post('/v1/billing/webhook', async (req, res) => {
+    const event = req.body;
+
+    // Cuando la suscripción o pago ha sido completado exitosamente
+    if (event.type === 'checkout.session.completed') {
+        const session = event.data.object;
+
+        // Generar credenciales automáticamente tras confirmación de pago
+        const tenantId = 'tenant-' + Math.random().toString(36).substring(2, 9);
+        const apiKey = 'bk_live_' + Array.from(crypto.getRandomValues(new Uint8Array(16)))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+
+        await db.createApiKey(tenantId, apiKey);
+        console.log(`💳 Suscripción activada: ${tenantId} con API Key ${apiKey}`);
+    }
+
+    return res.status(200).json({ received: true });
+});
+
+/**
+ * ENDPOINT Registro Manual / Demostración
  * POST /v1/auth/keys
  */
 app.post('/v1/auth/keys', async (req, res) => {

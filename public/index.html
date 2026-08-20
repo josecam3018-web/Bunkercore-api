@@ -3,17 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BunkerCore | Console</title>
+    <title>BunkerCore | Console & Billing</title>
     <style>
-        :root { --bg: #0d1117; --panel: #161b22; --accent: #238636; --text: #c9d1d9; --border: #30363d; --neon: #58a6ff; }
+        :root { --bg: #0d1117; --panel: #161b22; --accent: #238636; --text: #c9d1d9; --border: #30363d; --neon: #58a6ff; --gold: #d29922; }
         body { font-family: monospace; background-color: var(--bg); color: var(--text); padding: 20px; display: flex; justify-content: center; }
-        .container { max-width: 700px; width: 100%; }
+        .container { max-width: 750px; width: 100%; }
         .card { background-color: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        .pro-card { border: 1px solid var(--gold); background-color: #1c1917; }
         h1 { color: var(--neon); margin-top: 0; }
         h2 { font-size: 1.1rem; color: #fff; margin-top: 0; }
         label { display: block; margin-bottom: 5px; font-size: 0.85rem; color: #8b949e; }
         input, textarea, button { width: 100%; padding: 10px; margin-bottom: 12px; background: #0d1117; border: 1px solid var(--border); color: #fff; border-radius: 6px; box-sizing: border-box; font-family: monospace; }
         button { background-color: var(--accent); font-weight: bold; cursor: pointer; border: none; }
+        .btn-pro { background-color: var(--gold); color: #000; }
         button:hover { opacity: 0.9; }
         pre { background: #000; padding: 12px; border-radius: 6px; border: 1px solid var(--border); overflow-x: auto; color: #7ee787; font-size: 0.85rem; }
     </style>
@@ -21,11 +23,19 @@
 <body>
     <div class="container">
         <h1>🛡️ BunkerCore Engine</h1>
-        <p style="color: #8b949e;">Consola de Cifrado Zero-Trust & API Key Manager</p>
+        <p style="color: #8b949e;">Consola de Cifrado Zero-Trust & SaaS Monetization</p>
 
+        <!-- Planes & Monetización -->
+        <div class="card pro-card">
+            <h2 style="color: var(--gold);">💳 Plan Pro Comercial ($29 USD / mes)</h2>
+            <p style="font-size: 0.9rem; color: #d0d7de;">Incluye: Cifrado ilimitado AES-256-GCM, Aislamiento RLS en PostgreSQL y soporte 24/7.</p>
+            <button class="btn-pro" onclick="subscribe()">Suscribirse vía Stripe Checkout 🚀</button>
+        </div>
+
+        <!-- Generador de Demo -->
         <div class="card">
-            <h2>🔑 1. Registrar Cliente & Generar API Key</h2>
-            <button onclick="registerKey()">Generar Credenciales en PostgreSQL</button>
+            <h2>🔑 Credenciales de Prueba (Demo)</h2>
+            <button onclick="registerKey()">Generar API Key Gratuita de Prueba</button>
             <div id="credentialsOutput" style="display:none; margin-top:10px;">
                 <label>Tenant ID Asignado:</label>
                 <input type="text" id="tenantOutput" readonly>
@@ -34,8 +44,9 @@
             </div>
         </div>
 
+        <!-- Consola de Cifrado -->
         <div class="card">
-            <h2>🔒 2. Operaciones Cifradas (API Client)</h2>
+            <h2>🔒 Operaciones Cifradas (API Client)</h2>
             <label>Tenant ID:</label>
             <input type="text" id="tenantInput" placeholder="tenant-xxxxxx">
             <label>API Key (`x-api-key`):</label>
@@ -53,6 +64,20 @@
     </div>
 
     <script>
+        async function subscribe() {
+            try {
+                const res = await fetch('/v1/billing/checkout', { method: 'POST' });
+                const data = await res.json();
+                if (data.url) {
+                    window.location.href = data.url;
+                } else {
+                    alert('Error: ' + JSON.stringify(data));
+                }
+            } catch (err) {
+                alert('No se pudo conectar al servicio de facturación.');
+            }
+        }
+
         async function registerKey() {
             const res = await fetch('/v1/auth/keys', { method: 'POST' });
             const data = await res.json();
