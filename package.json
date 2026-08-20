@@ -1,39 +1,16 @@
 {
   "name": "bunkercore",
   "version": "1.0.0",
-  "type": "module",
+  "description": "BunkerCore Zero-Trust API Engine",
   "main": "src/api/server.js",
+  "type": "module",
   "scripts": {
     "start": "node src/api/server.js",
-    "dev": "node --watch src/api/server.js"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "@neondatabase/auth": "^0.4.1-beta",
-    "@neondatabase/neon-js": "^0.6.1-beta",
-    "@simplewebauthn/browser": "^10.0.0",
-    "@simplewebauthn/server": "^10.0.1",
-    "better-auth": "^1.6.11",
     "dotenv": "^16.4.5",
-    "express": "^4.22.2",
-    "postgres": "^3.4.4",
-    "react-router-dom": "^7.17.0"
-  },
-  "overrides": {
-    "better-auth": "$better-auth"
-  },
-  "description": "CipherKey Enterprise V2: Infraestructura de Identidad Zero-Trust B2B. Eliminamos la vulnerabilidad cognitiva de las contraseñas mediante autenticación FIDO2/WebAuthn. Arquitectura soberana con cifrado AES-256-GCM y motor CipherORM optimizado para ARM64. Soberanía digital inmutable para la integridad absoluta de datos en la nube. # bunkercore # bunkercore",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/camachogonzalezdavidjose-stack/bunkercore.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/camachogonzalezdavidjose-stack/bunkercore/issues"
-  },
-  "homepage": "https://github.com/camachogonzalezdavidjose-stack/bunkercore#readme",
-  "directories": {
-    "test": "tests"
+    "express": "^4.19.2",
+    "pg": "^8.11.5"
   }
 }
