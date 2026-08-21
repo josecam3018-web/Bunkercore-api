@@ -3,53 +3,125 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BunkerCore - Autenticación Biométrica</title>
+  <title>BunkerCore - Portal de Autenticación</title>
   <script src="https://unpkg.com/@simplewebauthn/browser@9.0.0/dist/bundle/index.umd.min.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
-    body { font-family: system-ui, sans-serif; background: #0f172a; color: white; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-    .card { background: #1e293b; padding: 2rem; border-radius: 1rem; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); max-width: 380px; width: 90%; }
-    .btn-group { display: flex; flex-direction: column; gap: 0.8rem; margin-top: 1.5rem; }
-    button { color: white; border: none; padding: 0.8rem 1.2rem; border-radius: 0.5rem; font-size: 0.95rem; font-weight: bold; cursor: pointer; transition: 0.2s; }
-    .btn-register { background: #10b981; }
-    .btn-register:hover { background: #059669; }
-    .btn-login { background: #3b82f6; }
-    .btn-login:hover { background: #2563eb; }
-    .status { margin-top: 1.2rem; font-size: 0.9rem; color: #94a3b8; word-break: break-word; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: white; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+    .card { background: #1e293b; padding: 2rem; border-radius: 1rem; box-shadow: 0 10px 25px rgba(0,0,0,0.5); max-width: 380px; width: 90%; text-align: center; }
+    .form-group { margin-bottom: 1rem; text-align: left; }
+    label { font-size: 0.85rem; color: #94a3b8; display: block; margin-bottom: 0.3rem; }
+    input { width: 100%; padding: 0.7rem; border-radius: 0.5rem; border: 1px solid #334155; background: #0f172a; color: white; box-sizing: border-box; }
+    button { width: 100%; color: white; border: none; padding: 0.8rem; border-radius: 0.5rem; font-weight: bold; cursor: pointer; transition: 0.2s; margin-top: 0.5rem; }
+    .btn-email { background: #2563eb; }
+    .btn-email:hover { background: #1d4ed8; }
+    .btn-fingerprint { background: #10b981; }
+    .btn-fingerprint:hover { background: #059669; }
+    .divider { display: flex; align-items: center; margin: 1.5rem 0; color: #64748b; font-size: 0.85rem; }
+    .divider::before, .divider::after { content: ""; flex: 1; border-bottom: 1px solid #334155; }
+    .divider span { padding: 0 0.5rem; }
+    .status { margin-top: 1rem; font-size: 0.85rem; color: #94a3b8; word-break: break-word; }
   </style>
 </head>
 <body>
 
   <div class="card">
     <h2>🔑 BunkerCore Auth</h2>
-    <p>Gestión Biométrica FIDO2 / WebAuthn</p>
-    
-    <div class="btn-group">
-      <button id="btnRegister" class="btn-register">📝 1. Registrar mi Huella</button>
-      <button id="btnLogin" class="btn-login">🖐️ 2. Verificar Huella</button>
-    </div>
+    <p style="font-size: 0.9rem; color: #94a3b8;">Selecciona tu método de acceso preferido</p>
 
-    <div id="status" class="status">Selecciona una opción para comenzar.</div>
+    <!-- 1. REGISTRO / LOGIN POR CORREO -->
+    <form id="emailForm">
+      <div class="form-group">
+        <label>Correo Electrónico</label>
+        <input type="email" id="emailInput" placeholder="usuario@bunkercore.io" required />
+      </div>
+      <div class="form-group">
+        <label>Contraseña</label>
+        <input type="password" id="passwordInput" placeholder="••••••••" required />
+      </div>
+      <button type="submit" class="btn-email">Continuar con Correo</button>
+    </form>
+
+    <div class="divider"><span>O CONTINÚA CON</span></div>
+
+    <!-- 2. LOGIN CON GOOGLE -->
+    <div id="g_id_onload"
+         data-client_id="TU_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
+         data-callback="handleGoogleLogin">
+    </div>
+    <div class="g_id_signin" data-type="standard" data-width="315"></div>
+
+    <div class="divider"><span>SEGURIDAD BIOMÉTRICA</span></div>
+
+    <!-- 3. ACCESO POR HUELLA DACTILAR -->
+    <button id="btnRegisterFinger" class="btn-fingerprint">📝 Registrar Huella Dactilar</button>
+    <button id="btnLoginFinger" class="btn-email" style="background: #6366f1;">🖐️ Acceder con Huella</button>
+
+    <div id="status" class="status">Listo para autenticar.</div>
   </div>
 
   <script>
-    const btnRegister = document.getElementById('btnRegister');
-    const btnLogin = document.getElementById('btnLogin');
     const status = document.getElementById('status');
 
-    // 1. REGISTRAR HUELLA POR PRIMERA VEZ
-    btnRegister.addEventListener('click', async () => {
-      try {
-        status.style.color = '#94a3b8';
-        status.textContent = 'Obteniendo opciones de registro...';
+    // Manejador del Formulario de Correo
+    document.getElementById('emailForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      status.style.color = '#94a3b8';
+      status.textContent = 'Registrando por correo...';
 
+      try {
+        const res = await fetch('/v1/auth/register-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: document.getElementById('emailInput').value,
+            password: document.getElementById('passwordInput').value
+          })
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          status.style.color = '#4ade80';
+          status.textContent = `✅ Acceso concedido. TenantID: ${data.tenantId}`;
+        } else {
+          status.style.color = '#f87171';
+          status.textContent = `Error: ${data.error}`;
+        }
+      } catch (err) {
+        status.style.color = '#f87171';
+        status.textContent = 'Error de conexión: ' + err.message;
+      }
+    });
+
+    // Manejador de Google Sign-In
+    async function handleGoogleLogin(response) {
+      status.textContent = 'Verificando cuenta de Google...';
+      try {
+        const res = await fetch('/v1/auth/google', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credential: response.credential })
+        });
+        const data = await res.json();
+        status.style.color = '#4ade80';
+        status.textContent = `✅ Sesión de Google activa. API Key: ${data.apiKey}`;
+      } catch (err) {
+        status.style.color = '#f87171';
+        status.textContent = 'Error con Google Auth: ' + err.message;
+      }
+    }
+
+    // Registrar Huella
+    document.getElementById('btnRegisterFinger').addEventListener('click', async () => {
+      try {
+        status.textContent = 'Solicitando opciones de huella...';
         const resOptions = await fetch('/v1/auth/webauthn-register-options');
+        
+        if (!resOptions.ok) throw new Error('Ruta no encontrada en el servidor.');
         const options = await resOptions.json();
 
-        status.textContent = '👆 Escanea tu huella para REGISTRAR...';
-
+        status.textContent = '👆 Toca el lector de huella...';
         const regResponse = await SimpleWebAuthnBrowser.startRegistration(options);
-
-        status.textContent = 'Guardando credencial biométrica...';
 
         const resVerify = await fetch('/v1/auth/webauthn-register-verify', {
           method: 'POST',
@@ -58,53 +130,13 @@
         });
 
         const result = await resVerify.json();
-
         if (result.status === 'REGISTERED') {
           status.style.color = '#4ade80';
-          status.textContent = '✅ ¡Huella registrada con éxito! Ya puedes verificar tu acceso.';
-        } else {
-          status.style.color = '#f87171';
-          status.textContent = '❌ Error al registrar huella.';
+          status.textContent = '✅ Huella vinculada exitosamente.';
         }
       } catch (err) {
         status.style.color = '#f87171';
-        status.textContent = 'Error: ' + err.message;
-      }
-    });
-
-    // 2. VERIFICAR HUELLA REGISTRADA
-    btnLogin.addEventListener('click', async () => {
-      try {
-        status.style.color = '#94a3b8';
-        status.textContent = 'Solicitando desafío...';
-
-        const resOptions = await fetch('/v1/auth/webauthn-options');
-        const options = await resOptions.json();
-
-        status.textContent = '👆 Coloca tu huella para VERIFICAR...';
-
-        const authResponse = await SimpleWebAuthnBrowser.startAuthentication(options);
-
-        status.textContent = 'Verificando con el servidor...';
-
-        const resVerify = await fetch('/v1/auth/webauthn-verify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(authResponse)
-        });
-
-        const result = await resVerify.json();
-
-        if (result.status === 'VERIFIED') {
-          status.style.color = '#4ade80';
-          status.textContent = '✅ ¡Autenticación por huella exitosa!';
-        } else {
-          status.style.color = '#f87171';
-          status.textContent = '❌ Verificación fallida.';
-        }
-      } catch (err) {
-        status.style.color = '#f87171';
-        status.textContent = 'Error: ' + err.message;
+        status.textContent = 'Error en huella: ' + err.message;
       }
     });
   </script>

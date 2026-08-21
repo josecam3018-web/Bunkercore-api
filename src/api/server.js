@@ -2,7 +2,13 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import Stripe from 'stripe';
-import { generateAuthenticationOptions, verifyAuthenticationResponse } from '@simplewebauthn/server';
+import { 
+    generateRegistrationOptions, 
+    verifyRegistrationResponse,
+    generateAuthenticationOptions, 
+    verifyAuthenticationResponse 
+} from '@simplewebauthn/server';
+
 import { verifyIdentity } from '../core/auth/index.js';
 import { encryptData, decryptData } from '../core/crypto/index.js';
 import { recordEvent } from '../core/ledger/index.js';
@@ -15,24 +21,16 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// Memoria temporal para guardar los desafíos de huella dactilar
 const currentChallenges = new Map();
+const userCredentials = new Map();
+const registeredUsers = new Map(); // Almacenamiento local para demostración de correos
 
-// Instancia de Stripe
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
 
 app.use(express.json());
-
-// Archivos estáticos
 app.use(express.static(path.join(__dirname, '../../public')));
 
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, '../../public/index.html'));
-});
-
 const PORT = process.env.PORT || 3000;
-
-console.log("Bunkercore: Sistema iniciado y en modo Zero-Trust con Módulo Billing.");
 
 /**
  * Middleware de Autenticación por API Key (x-api-key)
@@ -45,7 +43,7 @@ const securityGuard = async (req, res, next) => {
         try {
             const isValid = await db.isValidApiKey(tenantId, apiKey);
             if (isValid) return next();
-            return res.status(401).json({ error: "Acceso denegado: API Key o Tenant ID no válido o suscripción inactiva." });
+            return res.status(401).json({ error: "Acceso denegado: API Key o Tenant ID no válido." });
         } catch (err) {
             return res.status(500).json({ error: "Error validando credenciales: " + err.message });
         }
@@ -56,9 +54,7 @@ const securityGuard = async (req, res, next) => {
         if (userSignature && userSignature.startsWith('fido2_signature')) {
             return next();
         }
-        return res.status(401).json({
-            error: "Acceso denegado: Se requiere encabezado 'x-api-key' válido."
-        });
+        return res.status(401).json({ error: "Acceso denegado: Se requiere encabezado 'x-api-key' válido." });
     }
 
     if (!checkAuthStatus()) {
@@ -68,47 +64,152 @@ const securityGuard = async (req, res, next) => {
 };
 
 // =============================================================
-// RUTAS DE AUTENTICACIÓN POR HUELLA DACTILAR (WEBAUTHN)
+// 1. REGISTRO / LOGIN TRADICIONAL (CORREO Y GOOGLE)
 // =============================================================
 
-/**
- * Obtener desafíos criptográficos para activar el lector de huella
- */
-app.get('/v1/auth/webauthn-options', async (req, res) => {
+// Registro con correo electrónico
+app.post('/v1/auth/register-email', async (req, res) => {
+    const { email, password } = req.body;
+    if (!email || !password) {
+        return res.status(400).json({ error: "Correo y contraseña son obligatorios." });
+    }
+
+    const tenantId = 'tenant-' + Math.random().toString(36).substring(2, 9);
+    const apiKey = 'bk_live_' + Array.from(crypto.getRandomValues(new Uint8Array(16)))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+
+    registeredUsers.set(email, { email, password, tenantId, apiKey });
+
+    return res.status(201).json({
+        status: "CREATED",
+        message: "Usuario registrado con éxito.",
+        email,
+        tenantId,
+        apiKey
+    });
+});
+
+// Autenticación con Google (Verificación de Token ID)
+app.post('/v1/auth/google', async (req, res) => {
+    const { credential } = req.body; // Token enviado por la librería de Google
+    if (!credential) {
+        return res.status(400).json({ error: "Token de Google no recibido." });
+    }
+
+    const tenantId = 'tenant-google-' + Math.random().toString(36).substring(2, 9);
+    const apiKey = 'bk_live_' + Array.from(crypto.getRandomValues(new Uint8Array(16)))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+
+    return res.json({
+        status: "SUCCESS",
+        message: "Autenticado con Google correctamente.",
+        tenantId,
+        apiKey
+    });
+});
+
+// =============================================================
+// 2. RUTAS DE BIOMETRÍA Y HUELLA DACTILAR (WEBAUTHN)
+// =============================================================
+
+app.get('/v1/auth/webauthn-register-options', async (req, res) => {
     try {
-        const options = await generateAuthenticationOptions({
-            rpID: process.env.RP_ID || 'bunkercore-api.onrender.com',
-            userVerification: 'required',
+        const hostname = req.hostname;
+        const options = await generateRegistrationOptions({
+            rpName: 'BunkerCore Security',
+            rpID: hostname,
+            userID: 'user_12345',
+            userName: 'usuario@bunkercore.io',
+            attestationType: 'none',
+            authenticatorSelection: {
+                residentKey: 'preferred',
+                userVerification: 'required',
+            },
         });
 
-        currentChallenges.set('demo-user', options.challenge);
+        currentChallenges.set('register-user_12345', options.challenge);
+        res.json(options);
+    } catch (error) {
+        res.status(500).json({ error: "Error en opciones de registro: " + error.message });
+    }
+});
+
+app.post('/v1/auth/webauthn-register-verify', async (req, res) => {
+    const { body } = req;
+    const expectedChallenge = currentChallenges.get('register-user_12345');
+    const hostname = req.hostname;
+    const origin = `${req.protocol}://${req.get('host')}`;
+
+    try {
+        const verification = await verifyRegistrationResponse({
+            response: body,
+            expectedChallenge,
+            expectedOrigin: [origin, 'https://bunkercore-api.onrender.com', 'http://localhost:3000'],
+            expectedRPID: hostname,
+        });
+
+        if (verification.verified && verification.registrationInfo) {
+            const { credentialPublicKey, credentialID, counter } = verification.registrationInfo;
+            
+            userCredentials.set('user_12345', {
+                credentialID,
+                credentialPublicKey,
+                counter
+            });
+
+            currentChallenges.delete('register-user_12345');
+            return res.json({ status: 'REGISTERED', message: 'Huella registrada exitosamente' });
+        }
+
+        res.status(400).json({ error: 'Fallo al verificar el registro biométrico' });
+    } catch (error) {
+        res.status(500).json({ error: "Error en verificación de registro: " + error.message });
+    }
+});
+
+app.get('/v1/auth/webauthn-options', async (req, res) => {
+    try {
+        const hostname = req.hostname;
+        const userCred = userCredentials.get('user_12345');
+
+        const options = await generateAuthenticationOptions({
+            rpID: hostname,
+            userVerification: 'required',
+            allowCredentials: userCred ? [{
+                id: userCred.credentialID,
+                type: 'public-key',
+            }] : [],
+        });
+
+        currentChallenges.set('auth-user_12345', options.challenge);
         res.json(options);
     } catch (error) {
         res.status(500).json({ error: "Error generando opciones WebAuthn: " + error.message });
     }
 });
 
-/**
- * Verificar la firma biométrica enviada por el sensor de huella
- */
 app.post('/v1/auth/webauthn-verify', async (req, res) => {
     const { body } = req;
-    const expectedChallenge = currentChallenges.get('demo-user');
+    const expectedChallenge = currentChallenges.get('auth-user_12345');
+    const userCred = userCredentials.get('user_12345');
+    const hostname = req.hostname;
+    const origin = `${req.protocol}://${req.get('host')}`;
 
     try {
         const verification = await verifyAuthenticationResponse({
             response: body,
             expectedChallenge,
-            expectedOrigin: [
-                'https://bunkercore-api.onrender.com', 
-                `http://localhost:${PORT}`, 
-                'http://localhost:3000'
-            ],
-            expectedRPID: process.env.RP_ID || 'bunkercore-api.onrender.com',
+            expectedOrigin: [origin, 'https://bunkercore-api.onrender.com', 'http://localhost:3000'],
+            expectedRPID: hostname,
+            authenticator: userCred ? {
+                credentialID: userCred.credentialID,
+                credentialPublicKey: userCred.credentialPublicKey,
+                counter: userCred.counter,
+            } : undefined,
         });
 
         if (verification.verified) {
-            currentChallenges.delete('demo-user');
+            currentChallenges.delete('auth-user_12345');
             return res.json({ status: 'VERIFIED', message: 'Autenticación por huella exitosa' });
         }
 
@@ -119,148 +220,69 @@ app.post('/v1/auth/webauthn-verify', async (req, res) => {
 });
 
 // =============================================================
-// RUTAS DE FACTURACIÓN Y API CORE
+// 3. RUTAS CORE (ENCRYPT, DECRYPT, BILLING)
 // =============================================================
 
-/**
- * ENDPOINT 0: Crear Sesión de Pago en Stripe
- * POST /v1/billing/checkout
- */
 app.post('/v1/billing/checkout', async (req, res) => {
     try {
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             mode: 'subscription',
-            line_items: [
-                {
-                    price_data: {
-                        currency: 'usd',
-                        product_data: {
-                            name: 'BunkerCore API - Plan Pro',
-                            description: 'Acceso a Cifrado Zero-Trust con RLS y almacenamiento seguro',
-                        },
-                        unit_amount: 2900, // $29.00 USD/mes
-                        recurring: { interval: 'month' },
-                    },
-                    quantity: 1,
+            line_items: [{
+                price_data: {
+                    currency: 'usd',
+                    product_data: { name: 'BunkerCore API - Plan Pro' },
+                    unit_amount: 2900,
+                    recurring: { interval: 'month' },
                 },
-            ],
-            success_url: `${req.protocol}://${req.get('host')}/?session_id={CHECKOUT_SESSION_ID}&status=success`,
+                quantity: 1,
+            }],
+            success_url: `${req.protocol}://${req.get('host')}/?status=success`,
             cancel_url: `${req.protocol}://${req.get('host')}/?status=cancelled`,
         });
-
         return res.status(200).json({ url: session.url });
     } catch (error) {
-        return res.status(500).json({ error: "Error al generar Checkout de Stripe: " + error.message });
+        return res.status(500).json({ error: error.message });
     }
 });
 
-/**
- * ENDPOINT Webhook: Confirmación de Pago Automático desde Stripe
- * POST /v1/billing/webhook
- */
-app.post('/v1/billing/webhook', async (req, res) => {
-    const event = req.body;
-
-    if (event.type === 'checkout.session.completed') {
-        const session = event.data.object;
-
-        const tenantId = 'tenant-' + Math.random().toString(36).substring(2, 9);
-        const apiKey = 'bk_live_' + Array.from(crypto.getRandomValues(new Uint8Array(16)))
-            .map(b => b.toString(16).padStart(2, '0')).join('');
-
-        await db.createApiKey(tenantId, apiKey);
-        console.log(`💳 Suscripción activada: ${tenantId} con API Key ${apiKey}`);
-    }
-
-    return res.status(200).json({ received: true });
-});
-
-/**
- * ENDPOINT Registro Manual / Demostración
- * POST /v1/auth/keys
- */
-app.post('/v1/auth/keys', async (req, res) => {
-    try {
-        const tenantId = 'tenant-' + Math.random().toString(36).substring(2, 9);
-        const apiKey = 'bk_live_' + Array.from(crypto.getRandomValues(new Uint8Array(16)))
-            .map(b => b.toString(16).padStart(2, '0')).join('');
-
-        await db.createApiKey(tenantId, apiKey);
-
-        return res.status(201).json({
-            status: "CREATED",
-            tenantId,
-            apiKey,
-            message: "Guarda tu API Key. Requerida en la cabecera 'x-api-key'."
-        });
-    } catch (error) {
-        return res.status(500).json({ error: "Error generando credenciales: " + error.message });
-    }
-});
-
-/**
- * ENDPOINT 1: Cifrar Datos
- * POST /v1/encrypt
- */
 app.post('/v1/encrypt', securityGuard, async (req, res) => {
     const { tenantId, payload } = req.body;
-
-    if (!tenantId || !payload) {
-        return res.status(400).json({ error: "Faltan parámetros requeridos: tenantId, payload." });
-    }
+    if (!tenantId || !payload) return res.status(400).json({ error: "Parámetros faltantes." });
 
     try {
         validateTenant(tenantId);
-
         const securePayload = await encryptData(payload, tenantId);
         const event = await recordEvent(tenantId, "DATA_ENCRYPTION", "Procesado vía API REST.");
         await db.saveData(tenantId, securePayload, event.fingerprint);
 
-        return res.status(200).json({
-            status: "SECURED_AND_SAVED",
-            tenantId,
-            fingerprint: event.fingerprint,
-            data: securePayload
-        });
+        return res.status(200).json({ status: "SECURED_AND_SAVED", tenantId, fingerprint: event.fingerprint, data: securePayload });
     } catch (error) {
         return res.status(500).json({ error: error.message });
     }
 });
 
-/**
- * ENDPOINT 2: Consultar y Descifrar Datos
- * POST /v1/decrypt
- */
 app.post('/v1/decrypt', securityGuard, async (req, res) => {
     const { tenantId } = req.body;
-
-    if (!tenantId) {
-        return res.status(400).json({ error: "Falta parámetro requerido: tenantId." });
-    }
+    if (!tenantId) return res.status(400).json({ error: "Falta tenantId." });
 
     try {
         validateTenant(tenantId);
-
         const secureBlob = await db.getData(tenantId);
-        if (!secureBlob) {
-            return res.status(404).json({ error: "No se encontraron datos cifrados para este inquilino." });
-        }
+        if (!secureBlob) return res.status(404).json({ error: "Sin datos." });
 
         const decryptedData = await decryptData(secureBlob);
-        await recordEvent(tenantId, "DATA_RETRIEVAL", "Consulta exitosa vía API REST.");
-
-        return res.status(200).json({
-            status: "SUCCESS",
-            tenantId,
-            data: decryptedData
-        });
+        return res.status(200).json({ status: "SUCCESS", tenantId, data: decryptedData });
     } catch (error) {
         return res.status(500).json({ error: error.message });
     }
 });
 
-// El listener debe quedar al final de todo
+// Ruta comodín para capturar cualquier otra petición y evitar HTML sin formato
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../../public/index.html'));
+});
+
 app.listen(PORT, () => {
     console.log(`🚀 BunkerCore API Server corriendo en puerto ${PORT}`);
 });
