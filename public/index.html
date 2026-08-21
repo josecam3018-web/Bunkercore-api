@@ -3,45 +3,90 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BunkerCore - Verificación por Huella</title>
+  <title>BunkerCore - Autenticación Biométrica</title>
   <script src="https://unpkg.com/@simplewebauthn/browser@9.0.0/dist/bundle/index.umd.min.js"></script>
   <style>
-    body { font-family: system-ui, sans-serif; background: #0f172a; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-    .card { background: #1e293b; padding: 2rem; border-radius: 1rem; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); max-width: 350px; }
-    button { background: #3b82f6; color: white; border: none; padding: 0.8rem 1.5rem; border-radius: 0.5rem; font-size: 1rem; font-weight: bold; cursor: pointer; transition: 0.2s; }
-    button:hover { background: #2563eb; }
-    .status { margin-top: 1rem; font-size: 0.9rem; color: #94a3b8; }
+    body { font-family: system-ui, sans-serif; background: #0f172a; color: white; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+    .card { background: #1e293b; padding: 2rem; border-radius: 1rem; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); max-width: 380px; width: 90%; }
+    .btn-group { display: flex; flex-direction: column; gap: 0.8rem; margin-top: 1.5rem; }
+    button { color: white; border: none; padding: 0.8rem 1.2rem; border-radius: 0.5rem; font-size: 0.95rem; font-weight: bold; cursor: pointer; transition: 0.2s; }
+    .btn-register { background: #10b981; }
+    .btn-register:hover { background: #059669; }
+    .btn-login { background: #3b82f6; }
+    .btn-login:hover { background: #2563eb; }
+    .status { margin-top: 1.2rem; font-size: 0.9rem; color: #94a3b8; word-break: break-word; }
   </style>
 </head>
 <body>
 
   <div class="card">
     <h2>🔑 BunkerCore Auth</h2>
-    <p>Verifica tu identidad usando el lector de huella dactilar de tu dispositivo.</p>
-    <button id="btnFingerprint">🖐️ Escanear Huella</button>
-    <div id="status" class="status">Listo para escanear</div>
+    <p>Gestión Biométrica FIDO2 / WebAuthn</p>
+    
+    <div class="btn-group">
+      <button id="btnRegister" class="btn-register">📝 1. Registrar mi Huella</button>
+      <button id="btnLogin" class="btn-login">🖐️ 2. Verificar Huella</button>
+    </div>
+
+    <div id="status" class="status">Selecciona una opción para comenzar.</div>
   </div>
 
   <script>
-    const btn = document.getElementById('btnFingerprint');
+    const btnRegister = document.getElementById('btnRegister');
+    const btnLogin = document.getElementById('btnLogin');
     const status = document.getElementById('status');
 
-    btn.addEventListener('click', async () => {
+    // 1. REGISTRAR HUELLA POR PRIMERA VEZ
+    btnRegister.addEventListener('click', async () => {
       try {
+        status.style.color = '#94a3b8';
+        status.textContent = 'Obteniendo opciones de registro...';
+
+        const resOptions = await fetch('/v1/auth/webauthn-register-options');
+        const options = await resOptions.json();
+
+        status.textContent = '👆 Escanea tu huella para REGISTRAR...';
+
+        const regResponse = await SimpleWebAuthnBrowser.startRegistration(options);
+
+        status.textContent = 'Guardando credencial biométrica...';
+
+        const resVerify = await fetch('/v1/auth/webauthn-register-verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(regResponse)
+        });
+
+        const result = await resVerify.json();
+
+        if (result.status === 'REGISTERED') {
+          status.style.color = '#4ade80';
+          status.textContent = '✅ ¡Huella registrada con éxito! Ya puedes verificar tu acceso.';
+        } else {
+          status.style.color = '#f87171';
+          status.textContent = '❌ Error al registrar huella.';
+        }
+      } catch (err) {
+        status.style.color = '#f87171';
+        status.textContent = 'Error: ' + err.message;
+      }
+    });
+
+    // 2. VERIFICAR HUELLA REGISTRADA
+    btnLogin.addEventListener('click', async () => {
+      try {
+        status.style.color = '#94a3b8';
         status.textContent = 'Solicitando desafío...';
-        
-        // 1. Pedir opciones de autenticación al backend
+
         const resOptions = await fetch('/v1/auth/webauthn-options');
         const options = await resOptions.json();
 
-        status.textContent = '👆 Toca el sensor de huella...';
+        status.textContent = '👆 Coloca tu huella para VERIFICAR...';
 
-        // 2. Activar el sensor de huella del dispositivo vía WebAuthn
         const authResponse = await SimpleWebAuthnBrowser.startAuthentication(options);
 
         status.textContent = 'Verificando con el servidor...';
 
-        // 3. Enviar la respuesta del sensor al servidor
         const resVerify = await fetch('/v1/auth/webauthn-verify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -52,7 +97,7 @@
 
         if (result.status === 'VERIFIED') {
           status.style.color = '#4ade80';
-          status.textContent = '✅ ¡Huella verificada correctamente!';
+          status.textContent = '✅ ¡Autenticación por huella exitosa!';
         } else {
           status.style.color = '#f87171';
           status.textContent = '❌ Verificación fallida.';
