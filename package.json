@@ -13,6 +13,22 @@
     "express": "^4.19.2",
     "pg": "^8.23.0",
     "postgres": "^3.4.9",
-    "stripe": "^22.5.0"
-  }
+    "stripe": "^22.5.0",
+    "swagger-jsdoc": "^6.3.0",
+    "swagger-ui-express": "^5.0.1"
+  },
+  "directories": {
+    "test": "tests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/josecam3018-web/bunkercore-api.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/josecam3018-web/bunkercore-api/issues"
+  },
+  "homepage": "https://github.com/josecam3018-web/bunkercore-api#readme"
 }
