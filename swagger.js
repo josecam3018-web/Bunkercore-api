@@ -6,21 +6,11 @@ const swaggerOptions = {
     info: {
       title: 'BunkerCore API - Zero-Trust Encryption SaaS',
       version: '1.0.0',
-      description: 'API Criptográfica Zero-Trust con soporte para Múltiples Inquilinos (Multi-Tenant), aislamiento RLS en PostgreSQL y facturación automatizada mediante Stripe.',
-      contact: {
-        name: 'Soporte BunkerCore',
-        url: 'https://github.com/josecam3018-web/bunkercore-sdk',
-      },
+      description: 'API Criptográfica Zero-Trust con soporte Multi-Tenant.',
     },
     servers: [
-      {
-        url: 'https://bunkercore-api.onrender.com',
-        description: 'Servidor de Producción (Render)',
-      },
-      {
-        url: 'http://localhost:3000',
-        description: 'Servidor Local de Desarrollo',
-      },
+      { url: 'https://bunkercore-api.onrender.com', description: 'Producción' },
+      { url: 'http://localhost:3000', description: 'Desarrollo Local' }
     ],
     components: {
       securitySchemes: {
@@ -28,12 +18,12 @@ const swaggerOptions = {
           type: 'apiKey',
           in: 'header',
           name: 'x-api-key',
-          description: 'Clave de API para autenticación de peticiones Zero-Trust',
-        },
-      },
-    },
+          description: 'Clave de API de BunkerCore'
+        }
+      }
+    }
   },
-  apis: ['./server.js'], // Escanea las anotaciones dentro de server.js
+  apis: ['./server.js'],
 };
 
 export const swaggerDocs = swaggerJSDoc(swaggerOptions);

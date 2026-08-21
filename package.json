@@ -10,8 +10,9 @@
   },
   "dependencies": {
     "@simplewebauthn/server": "^13.3.2",
-    "dotenv": "^16.4.5",
+    "dotenv": "^16.6.1",
     "express": "^4.19.2",
+    "express-rate-limit": "^8.6.2",
     "pg": "^8.23.0",
     "postgres": "^3.4.9",
     "stripe": "^22.5.0",
