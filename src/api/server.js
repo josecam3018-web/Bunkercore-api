@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import Stripe from 'stripe';
+import { generateAuthenticationOptions, verifyAuthenticationResponse } from '@simplewebauthn/server';
 import { verifyIdentity } from '../core/auth/index.js';
 import { encryptData, decryptData } from '../core/crypto/index.js';
 import { recordEvent } from '../core/ledger/index.js';
@@ -14,7 +15,10 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// Instancia de Stripe (utiliza la variable de entorno o un placeholder de prueba)
+// Memoria temporal para guardar los desafíos de huella dactilar
+const currentChallenges = new Map();
+
+// Instancia de Stripe
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
 
 app.use(express.json());
@@ -63,6 +67,61 @@ const securityGuard = async (req, res, next) => {
     next();
 };
 
+// =============================================================
+// RUTAS DE AUTENTICACIÓN POR HUELLA DACTILAR (WEBAUTHN)
+// =============================================================
+
+/**
+ * Obtener desafíos criptográficos para activar el lector de huella
+ */
+app.get('/v1/auth/webauthn-options', async (req, res) => {
+    try {
+        const options = await generateAuthenticationOptions({
+            rpID: process.env.RP_ID || 'bunkercore-api.onrender.com',
+            userVerification: 'required',
+        });
+
+        currentChallenges.set('demo-user', options.challenge);
+        res.json(options);
+    } catch (error) {
+        res.status(500).json({ error: "Error generando opciones WebAuthn: " + error.message });
+    }
+});
+
+/**
+ * Verificar la firma biométrica enviada por el sensor de huella
+ */
+app.post('/v1/auth/webauthn-verify', async (req, res) => {
+    const { body } = req;
+    const expectedChallenge = currentChallenges.get('demo-user');
+
+    try {
+        const verification = await verifyAuthenticationResponse({
+            response: body,
+            expectedChallenge,
+            expectedOrigin: [
+                'https://bunkercore-api.onrender.com', 
+                `http://localhost:${PORT}`, 
+                'http://localhost:3000'
+            ],
+            expectedRPID: process.env.RP_ID || 'bunkercore-api.onrender.com',
+        });
+
+        if (verification.verified) {
+            currentChallenges.delete('demo-user');
+            return res.json({ status: 'VERIFIED', message: 'Autenticación por huella exitosa' });
+        }
+
+        res.status(400).json({ error: 'Fallo en la verificación biométrica' });
+    } catch (error) {
+        res.status(500).json({ error: "Error verificando huella: " + error.message });
+    }
+});
+
+// =============================================================
+// RUTAS DE FACTURACIÓN Y API CORE
+// =============================================================
+
 /**
  * ENDPOINT 0: Crear Sesión de Pago en Stripe
  * POST /v1/billing/checkout
@@ -103,11 +162,9 @@ app.post('/v1/billing/checkout', async (req, res) => {
 app.post('/v1/billing/webhook', async (req, res) => {
     const event = req.body;
 
-    // Cuando la suscripción o pago ha sido completado exitosamente
     if (event.type === 'checkout.session.completed') {
         const session = event.data.object;
 
-        // Generar credenciales automáticamente tras confirmación de pago
         const tenantId = 'tenant-' + Math.random().toString(36).substring(2, 9);
         const apiKey = 'bk_live_' + Array.from(crypto.getRandomValues(new Uint8Array(16)))
             .map(b => b.toString(16).padStart(2, '0')).join('');
@@ -203,6 +260,7 @@ app.post('/v1/decrypt', securityGuard, async (req, res) => {
     }
 });
 
+// El listener debe quedar al final de todo
 app.listen(PORT, () => {
     console.log(`🚀 BunkerCore API Server corriendo en puerto ${PORT}`);
 });
