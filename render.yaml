@@ -1,9 +1,21 @@
-services:
-  - type: web
-    name: bunkercore-api
-    env: node
-    buildCommand: npm install
-    startCommand: npm start
-    envVars:
-      - key: NODE_ENV
-        value: production
+# Exported from Render on 2026-08-22T07:51:29Z
+version: "1"
+projects:
+- name: My project
+  environments:
+  - name: Production
+    services:
+    - type: web
+      name: Bunkercore-api
+      runtime: node
+      repo: https://github.com/josecam3018-web/Bunkercore-api
+      plan: free
+      envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: MASTER_KEY
+        sync: false
+      region: oregon
+      buildCommand: npm install
+      startCommand: node src/api/server.js
+      autoDeployTrigger: commit
